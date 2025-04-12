@@ -1,0 +1,1 @@
+ UnTrunsEXEbySign.ps1 %1
