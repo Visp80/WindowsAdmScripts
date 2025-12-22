@@ -1,142 +1,192 @@
-﻿
+﻿# paid_software_detector_clean_updates.py
+# Ультра-чистий детектор платного ПО для Windows
+# НЕ відображає оновлення Office/Windows (Security Update, Update for, Definition Update тощо)
+# Запускати від імені адміністратора
 
-$ErrorActionPreference = "SilentlyContinue"
-$Desktop = [Environment]::GetFolderPath("Desktop")
-$ReportFile = "paid_report.txt"
+import winreg
+import os
+import sys
+from datetime import datetime
+import subprocess
+import json
+import re
 
-function Write-Report($text) {
-    Write-Host $text
-    $text | Out-File -FilePath $ReportFile -Encoding UTF8 -Append
-}
+# Шляхи до реестру
+UNINSTALL_KEYS = [
+    r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+    r"SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+]
 
-Clear-Content $ReportFile -ErrorAction SilentlyContinue
+# Відоме платне ПО (основні пакети)
+PAID_PATTERNS = [
+    "Microsoft Office", "Microsoft Project", "Microsoft Visio",
+    "Office 16 Click-to-Run", "RAD Studio", "1С:Підприємство", "1C:Enterprise",
+    "Oracle.*Java", "Java.*Oracle", "Office Tab Enterprise"
+]
 
-Write-Report "ULTRA-CLEAN PAID SOFTWARE REPORT - WINDOWS"
-Write-Report "Date: $(Get-Date)"
-Write-Report "=======================================================================`n"
+# Системне сміття + усі оновлення Office/Windows
+JUNK_AND_UPDATES_PATTERNS = [
+    # Системні runtime та компоненти
+    "Microsoft.NET.Native", "Microsoft.UI.Xaml", "Microsoft.VCLibs", "Microsoft.WinAppRuntime",
+    "Microsoft.Services.Store", "Microsoft.DirectX", "Microsoft.HEIF", "Microsoft.HEVC",
+    "Microsoft.AV1", "Microsoft.VP9", "Microsoft.MPEG2", "Microsoft.WebMedia", "Microsoft.Webp",
+    "Microsoft.RawImage", "Microsoft.Widgets",
+    "Microsoft.WindowsAlarms", "Microsoft.WindowsCalculator", "Microsoft.WindowsCamera",
+    "Microsoft.WindowsMaps", "Microsoft.WindowsNotepad", "Microsoft.WindowsSoundRecorder",
+    "Microsoft.WindowsScan", "Microsoft.Paint", "Microsoft.ScreenSketch", "Microsoft.StickyNotes",
+    "Microsoft.BingWeather", "Microsoft.YourPhone", "Microsoft.ZuneMusic", "Microsoft.Xbox",
+    "Visual C\\+\\+.*Redistributable", "Visual C\\+\\+.*Runtime",
+    # Усі види оновлень Office/Windows
+    "Security Update for", "Update for", "Definition Update for",
+    "KB[0-9]+",  # будь-який патч з номером KB
+    "Korrekturhilfen", "Proofing", "MUI", "Language", "Языковой пакет",
+    "Web Components", "Необходимые компоненты для SSDT", "Обозреватель SQL Server",
+    "Объекты управления Microsoft SQL Server", "Политики Microsoft SQL Server",
+    "Системные типы Microsoft SQL Server", "Среда выполнения Microsoft Edge WebView2"
+]
 
-# Known paid software patterns (платне ПО)
-$PaidPatterns = @(
-    "Microsoft Office", "Microsoft Project", "Microsoft Visio", "Office 16 Click-to-Run",
-    "RAD Studio", "1С:Підприємство", "1C:Enterprise",
-    "Oracle.*Java", "Java.*Oracle", "Office Tab Enterprise",
-    "AnyDesk.*Professional"  # якщо є платна версія, але в вас free
-)
+def regex_match(patterns, text):
+    for pat in patterns:
+        if re.search(pat, text, re.IGNORECASE):
+            return True
+    return False
 
-# Junk filter (те саме, що раніше)
-$JunkPatterns = @(
-    "Microsoft\.NET\.Native", "Microsoft\.UI\.Xaml", "Microsoft\.VCLibs", "Microsoft\.WinAppRuntime",
-    "Microsoft\.Services\.Store", "Microsoft\.DirectX", "Microsoft\.HEIF", "Microsoft\.HEVC",
-    "Microsoft\.AV1", "Microsoft\.VP9", "Microsoft\.MPEG2", "Microsoft\.WebMedia", "Microsoft\.Webp",
-    "Microsoft\.RawImage", "Microsoft\.Widgets", "Microsoft\.D3DMapping",
-    "Microsoft\.WindowsAlarms", "Microsoft\.WindowsCalculator", "Microsoft\.WindowsCamera",
-    "Microsoft\.WindowsMaps", "Microsoft\.WindowsNotepad", "Microsoft\.WindowsSoundRecorder",
-    "Microsoft\.WindowsScan", "Microsoft\.Paint", "Microsoft\.ScreenSketch", "Microsoft\.StickyNotes",
-    "Microsoft\.BingWeather", "Microsoft\.YourPhone", "Microsoft\.ZuneMusic", "Microsoft\.Xbox",
-    "Microsoft\.StartExperiences", "Microsoft\.StorePurchase", "Microsoft\.FeedbackHub",
-    "Microsoft\.QuickAssist", "Microsoft\.CrossDevice", "Microsoft\.WebExperience",
-    "Visual C\+\+.*Redistributable", "Visual C\+\+.*Runtime",
-    "Kits Configuration Installer", "Application Verifier", "Windows App Certification Kit",
-    "SDK Debuggers", "MSI Development Tools", "WPT", "Windows SDK Signing Tools",
-    "Windows SDK EULA", "Windows Software Development Kit", "Update Health Tools"
-)
+def get_registry_programs():
+    programs = []
+    for base_key in [winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER]:
+        for key_path in UNINSTALL_KEYS:
+            try:
+                key = winreg.OpenKey(base_key, key_path)
+                for i in range(winreg.QueryInfoKey(key)[0]):
+                    subkey_name = winreg.EnumKey(key, i)
+                    try:
+                        subkey = winreg.OpenKey(key, subkey_name)
+                        display_name = None
+                        display_version = ""
+                        publisher = ""
+                        try:
+                            display_name = winreg.QueryValueEx(subkey, "DisplayName")[0]
+                        except FileNotFoundError:
+                            continue
+                        try:
+                            display_version = winreg.QueryValueEx(subkey, "DisplayVersion")[0]
+                        except FileNotFoundError:
+                            pass
+                        try:
+                            publisher = winreg.QueryValueEx(subkey, "Publisher")[0]
+                        except FileNotFoundError:
+                            pass
+                        programs.append({
+                            "name": display_name.strip(),
+                            "version": str(display_version).strip(),
+                            "publisher": publisher.strip(),
+                            "source": "Registry"
+                        })
+                        subkey.Close()
+                    except:
+                        continue
+                key.Close()
+            except FileNotFoundError:
+                continue
+    return programs
 
-# Registry + Store apps (те саме)
-$UninstallKeys = @(
-    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
-    "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
-    "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
-)
+def get_store_apps():
+    ps_command = '''
+    Get-AppxPackage | Where-Object { $_.NonRemovable -eq $false } |
+    Select-Object Name, Version, Publisher | ConvertTo-Json
+    '''
+    try:
+        result = subprocess.run(["powershell", "-Command", ps_command],
+                                capture_output=True, text=True, encoding='utf-8')
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            if not isinstance(data, list):
+                data = [data]
+            return [{"name": app.get("Name", ""), "version": app.get("Version", ""),
+                     "publisher": app.get("Publisher", ""), "source": "Store"} for app in data if app.get("Name")]
+    except:
+        pass
+    return []
 
-$Programs = Get-ItemProperty $UninstallKeys |
-    Where-Object { $_.DisplayName -and $_.UninstallString } |
-    Select-Object DisplayName, DisplayVersion, Publisher |
-    Sort-Object DisplayName
+def is_junk_or_update(name):
+    return regex_match(JUNK_AND_UPDATES_PATTERNS, name)
 
-$StoreApps = Get-AppxPackage | Where-Object { $_.NonRemovable -eq $false } |
-    Select-Object Name, Version, Publisher
+def is_paid(name):
+    return regex_match(PAID_PATTERNS, name)
 
-$PaidSoftware = @()
-$FreeSoftware = @()
+def main():
+    desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+    report_path = os.path.join(desktop, "paid_report_clean.txt")
 
-# Process programs
-foreach ($prog in $Programs) {
-    $name = $prog.DisplayName
+    paid_software = []
+    free_software = []
 
-    $isJunk = $false
-    foreach ($pattern in $JunkPatterns) {
-        if ($name -match $pattern) { $isJunk = $true; break }
-    }
-    if ($isJunk) { continue }
+    print("Збір програм з реестру...")
+    registry_programs = get_registry_programs()
 
-    $isPaid = $false
-    foreach ($pattern in $PaidPatterns) {
-        if ($name -match $pattern) { $isPaid = $true; break }
-    }
+    print("Збір Store-додатків...")
+    store_apps = get_store_apps()
 
-    if ($isPaid) {
-        $PaidSoftware += "$name | $($prog.DisplayVersion) | $($prog.Publisher)"
-    } else {
-        $FreeSoftware += "$name | $($prog.DisplayVersion) | $($prog.Publisher)"
-    }
-}
+    all_programs = registry_programs + store_apps
 
-# Store apps (те саме фільтрування)
-foreach ($app in $StoreApps) {
-    $name = $app.Name
-    $isJunk = $false
-    foreach ($pattern in $JunkPatterns) {
-        if ($name -match $pattern) { $isJunk = $true; break }
-    }
-    if ($isJunk) { continue }
+    for prog in all_programs:
+        name = prog["name"]
+        if not name or is_junk_or_update(name):
+            continue
 
-    $isPaid = $false
-    foreach ($pattern in $PaidPatterns) {
-        if ($name -match $pattern) { $isPaid = $true; break }
-    }
+        version = prog["version"] or "(немає версії)"
+        publisher = prog["publisher"] or "(немає видавця)"
+        source = " (Store)" if prog["source"] == "Store" else ""
 
-    if ($isPaid) {
-        $PaidSoftware += "$name | $($app.Version) | $($app.Publisher) (Store)"
-    } else {
-        $FreeSoftware += "$name | $($app.Version) | $($app.Publisher) (Store)"
-    }
-}
+        entry = f"{name} | {version} | {publisher}{source}"
 
-# Drivers (безкоштовні, але згадуємо)
-Write-Report "PROPRIETARY/FREE DRIVERS:"
-Write-Report "-----------------------------------------------------------------------"
-$Drivers = Get-WmiObject Win32_PnPSignedDriver | Select-Object DeviceName, DriverProviderName, DriverVersion | Where-Object { $_.DriverProviderName }
-$HasDriver = $false
-foreach ($d in $Drivers) {
-    if ($d.DriverProviderName -match "SteelSeries|AMD|NVIDIA") {
-        Write-Report "$($d.DeviceName) — $($d.DriverProviderName) v$($d.DriverVersion) (free)"
-        $HasDriver = $true
-    }
-}
-if (-not $HasDriver) { Write-Report "None detected" }
+        if is_paid(name):
+            paid_software.append(entry)
+        else:
+            free_software.append(entry)
 
-# OS
-Write-Report "`nWINDOWS OPERATING SYSTEM:"
-Write-Report "-----------------------------------------------------------------------"
-Write-Report "Microsoft Windows — paid OS"
+    # Усунення дублікатів (зберігаємо унікальні)
+    paid_software = sorted(list(set(paid_software)))
+    free_software = sorted(list(set(free_software)))
 
-# Paid
-Write-Report "`nSIGNIFICANT PAID SOFTWARE:"
-Write-Report "-----------------------------------------------------------------------"
-if ($PaidSoftware.Count -eq 0) {
-    Write-Report "None detected"
-} else {
-    $PaidSoftware | Sort-Object | ForEach-Object { Write-Report $_ }
-}
+    # Запис звіту
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write("ULTRA-CLEAN PAID SOFTWARE REPORT - WINDOWS (без оновлень Office/Windows)\n")
+        f.write(f"Date: {datetime.now().strftime('%m/%d/%Y %H:%M:%S')}\n")
+        f.write("=" * 75 + "\n\n")
 
-# Free
-Write-Report "`nFREE SOFTWARE (installed):"
-Write-Report "-----------------------------------------------------------------------"
-if ($FreeSoftware.Count -eq 0) {
-    Write-Report "None detected"
-} else {
-    $FreeSoftware | Sort-Object | ForEach-Object { Write-Report $_ }
-}
+        f.write("PROPRIETARY/FREE DRIVERS:\n")
+        f.write("-----------------------------------------------------------------------\n")
+        f.write("Драйвери не аналізуються в цій версії (вільні за замовчуванням)\n\n")
 
-Write-Report "`nReport saved to: $ReportFile"
-Write-Host "`nPaid software report saved to Desktop: paid_report.txt" -ForegroundColor Green
+        f.write("WINDOWS OPERATING SYSTEM:\n")
+        f.write("-----------------------------------------------------------------------\n")
+        f.write("Microsoft Windows — платна ОС\n\n")
+
+        f.write("SIGNIFICANT PAID SOFTWARE:\n")
+        f.write("-----------------------------------------------------------------------\n")
+        if paid_software:
+            for line in paid_software:
+                f.write(line + "\n")
+        else:
+            f.write("Не виявлено (окрім Windows)\n")
+        f.write("\n")
+
+        f.write("FREE SOFTWARE (встановлено):\n")
+        f.write("-----------------------------------------------------------------------\n")
+        if free_software:
+            for line in free_software:
+                f.write(line + "\n")
+        else:
+            f.write("Не виявлено\n")
+
+        f.write(f"\nЗвіт збережено: {report_path}")
+
+    print(f"\nГотово! Чистий звіт без оновлень збережено: {report_path}")
+
+if __name__ == "__main__":
+    try:
+        main()
+    except PermissionError:
+        print("Помилка: Запустіть скрипт від імені адміністратора.")
+        sys.exit(1)
