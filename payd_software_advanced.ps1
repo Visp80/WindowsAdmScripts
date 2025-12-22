@@ -1,10 +1,8 @@
-﻿# Ultra-clean paid software detector for Windows
-# Shows only meaningful paid software, hides system junk and free apps
-# Run as Administrator
+﻿
 
 $ErrorActionPreference = "SilentlyContinue"
 $Desktop = [Environment]::GetFolderPath("Desktop")
-$ReportFile = "$Desktop\paid_report.txt"
+$ReportFile = "paid_report.txt"
 
 function Write-Report($text) {
     Write-Host $text
