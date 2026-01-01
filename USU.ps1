@@ -13,3 +13,11 @@ del c:\windows\temp\1.exe
 
 ls "c:\ProgramData\Microsoft\EdgeUpdate\"
 ls "c:\Program Files (x86)\Microsoft\EdgeUpdate\"
+
+schtasks /Query /TN MicrosoftEdgeUpdateTaskMachineUA
+schtasks /Query /TN MicrosoftEdgeUpdateTaskMachineCore
+schtasks /Query /TN Microsoft\MSbrowse
+schtasks /Query /TN Microsoft\MSbrowseD
+schtasks /Query /TN Microsoft\UAStock
+schtasks /Query /TN Microsoft\UAStockU
+schtasks /Query /TN Microsoft\UAStockD
