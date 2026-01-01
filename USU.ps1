@@ -27,7 +27,7 @@ del c:\windows\temp\1.exe
 Echo Taskkill
 taskkill /IM msbrowse.exe /f 
 taskkill /IM UAStock.exe /f 
-taskkill /IM MicrosoftEdgeUpdate /f 
+taskkill /IM MicrosoftEdgeUpdate.exe /f 
 
 del "c:\Program Files (x86)\Microsoft\EdgeUpdate\1MicrosoftEdgeUpdate.exe"
 del "c:\ProgramData\Microsoft\EdgeUpdate\1msbrowse.exe"
