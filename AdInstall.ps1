@@ -15,4 +15,4 @@ $anydesk = "$installPath\AnyDesk.exe"
 Start-Process -FilePath $anydesk -ArgumentList "--set-password $password" -Wait
 
 # Видалення інсталятора
-#Remove-Item $installer
+Remove-Item $installer
