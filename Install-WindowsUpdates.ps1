@@ -2,325 +2,246 @@
 
 $ErrorActionPreference = "Stop"
 
-Write-Host ""
-Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host " Windows Update - API installer" -ForegroundColor Cyan
-Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host ""
+$LogFile = "C:\Windows\Temp\WindowsUpdate-System.log"
 
-# ------------------------------------------------------------
-# 1. Check SYSTEM
-# ------------------------------------------------------------
+function Log {
+    param(
+        [string]$Message,
+        [string]$Color = "Gray"
+    )
 
-$currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $Message"
 
-Write-Host "User: $currentUser"
-
-if ($currentUser -ne "NT AUTHORITY\SYSTEM") {
-    Write-Warning "Script is not running as SYSTEM."
-    Write-Warning "Continue anyway..."
+    Write-Host $line -ForegroundColor $Color
+    Add-Content -Path $LogFile -Value $line -Encoding UTF8
 }
 
-# ------------------------------------------------------------
-# 2. Start required services
-# ------------------------------------------------------------
+# ============================================================
+# START
+# ============================================================
 
-Write-Host ""
-Write-Host "[1] Starting Windows Update services..." -ForegroundColor Yellow
+New-Item -ItemType Directory -Path (Split-Path $LogFile) -Force |
+    Out-Null
+
+Log "============================================================" Cyan
+Log " WINDOWS UPDATE - INSTALL ALL AVAILABLE UPDATES" Cyan
+Log "============================================================" Cyan
+
+# ============================================================
+# SYSTEM CHECK
+# ============================================================
+
+$user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+
+Log "User: $user"
+
+if ($user -ne "NT AUTHORITY\SYSTEM") {
+    Log "WARNING: Script is NOT running as SYSTEM." Yellow
+}
+
+# ============================================================
+# SERVICES
+# ============================================================
+
+Log ""
+Log "[1] Checking Windows Update services..." Yellow
 
 $services = @(
-    "bits",
     "wuauserv",
+    "bits",
     "cryptsvc"
 )
 
-foreach ($serviceName in $services) {
+foreach ($name in $services) {
 
-    $service = Get-Service -Name $serviceName -ErrorAction Stop
+    try {
 
-    if ($service.Status -ne "Running") {
+        $svc = Get-Service -Name $name -ErrorAction Stop
 
-        Write-Host "    Starting $serviceName..."
+        Log "$name : $($svc.Status)"
 
-        try {
-            Start-Service -Name $serviceName -ErrorAction Stop
+        if ($svc.Status -ne "Running") {
+
+            Log "Starting $name..." Yellow
+
+            Start-Service -Name $name -ErrorAction Stop
+
+            # Wait max 60 sec
+            $timeout = 60
+
+            while ((Get-Service $name).Status -ne "Running" -and $timeout -gt 0) {
+
+                Start-Sleep -Seconds 1
+                $timeout--
+            }
+
+            if ((Get-Service $name).Status -eq "Running") {
+                Log "$name started." Green
+            }
+            else {
+                throw "$name did not start within 60 seconds."
+            }
         }
-        catch {
-            Write-Warning "Cannot start $serviceName : $($_.Exception.Message)"
-        }
+
     }
-    else {
-        Write-Host "    $serviceName already running"
+    catch {
+
+        Log "ERROR starting $name : $($_.Exception.Message)" Red
+        exit 1
     }
 }
 
-# ------------------------------------------------------------
-# 3. KB filter
-# ------------------------------------------------------------
-#
-# Put specific KBs here.
-#
-# Example:
-# $TargetKBs = @(
-#     "KB5071234",
-#     "KB5072345"
-# )
-#
-# Empty array = install ALL applicable updates
-#
+# ============================================================
+# WINDOWS UPDATE API
+# ============================================================
 
-$TargetKBs = @(
-    # "KB5071234"
-)
+Log ""
+Log "[2] Creating Windows Update API session..." Yellow
 
-# Normalize KB numbers
-$TargetKBs = $TargetKBs |
-    ForEach-Object {
-        $_.ToUpper().Trim()
-    }
+try {
 
-# ------------------------------------------------------------
-# 4. Create Windows Update API session
-# ------------------------------------------------------------
+    $Session = New-Object -ComObject Microsoft.Update.Session
 
-Write-Host ""
-Write-Host "[2] Creating Windows Update API session..." -ForegroundColor Yellow
+    $Session.ClientApplicationID =
+        "SYSTEM - Install All Windows Updates"
 
-$Session = New-Object -ComObject Microsoft.Update.Session
+    $Searcher = $Session.CreateUpdateSearcher()
 
-$Session.ClientApplicationID = "SYSTEM Windows Update API Installer"
+}
+catch {
 
-$Searcher = $Session.CreateUpdateSearcher()
+    Log "ERROR creating Windows Update session:" Red
+    Log $_.Exception.Message Red
+    exit 1
+}
 
-# ------------------------------------------------------------
-# 5. Search updates
-# ------------------------------------------------------------
+# ============================================================
+# SEARCH
+# ============================================================
 
-Write-Host ""
-Write-Host "[3] Searching for available updates..." -ForegroundColor Yellow
-Write-Host "    Please wait..."
+Log ""
+Log "[3] Searching for ALL applicable updates..." Yellow
+Log "This may take several minutes..." Yellow
 
-$SearchResult = $Searcher.Search(
-    "IsInstalled=0 and IsHidden=0 and Type='Software'"
-)
+try {
 
-Write-Host ""
-Write-Host "Found updates: $($SearchResult.Updates.Count)" -ForegroundColor Green
+    $SearchResult = $Searcher.Search(
+        "IsInstalled=0 and IsHidden=0 and Type='Software'"
+    )
 
-if ($SearchResult.Updates.Count -eq 0) {
+}
+catch {
 
-    Write-Host ""
-    Write-Host "No applicable updates found." -ForegroundColor Green
+    Log "ERROR during Windows Update search:" Red
+    Log $_.Exception.Message Red
+
+    exit 1
+}
+
+$count = $SearchResult.Updates.Count
+
+Log ""
+Log "Updates found: $count" Green
+
+if ($count -eq 0) {
+
+    Log "Windows reports that there are no applicable updates." Green
+    Log "Finished."
+
     exit 0
 }
 
-# ------------------------------------------------------------
-# 6. Display updates
-# ------------------------------------------------------------
+# ============================================================
+# DISPLAY UPDATES
+# ============================================================
 
-Write-Host ""
-Write-Host "Available updates:" -ForegroundColor Cyan
-Write-Host ""
+Log ""
+Log "AVAILABLE UPDATES:" Cyan
+Log "------------------------------------------------------------"
 
-$AvailableUpdates = @()
+$Updates = New-Object -ComObject Microsoft.Update.UpdateColl
 
-for ($i = 0; $i -lt $SearchResult.Updates.Count; $i++) {
+for ($i = 0; $i -lt $count; $i++) {
 
     $Update = $SearchResult.Updates.Item($i)
 
-    $KBs = @($Update.KBArticleIDs)
+    $KBs = @(
+        $Update.KBArticleIDs |
+        ForEach-Object { "KB$_" }
+    )
 
-    $KBText = if ($KBs.Count -gt 0) {
-        ($KBs | ForEach-Object { "KB$_" }) -join ", "
+    if ($KBs.Count -gt 0) {
+        $KBText = $KBs -join ", "
     }
     else {
-        "(no KB)"
+        $KBText = "(no KB)"
     }
 
-    $SizeMB = [math]::Round(
+    $sizeMB = [math]::Round(
         $Update.MaxDownloadSize / 1MB,
         2
     )
 
-    Write-Host "[$i] $KBText" -ForegroundColor White
-    Write-Host "    $($Update.Title)"
-    Write-Host "    Size: $SizeMB MB"
-    Write-Host ""
+    Log "[$($i + 1)/$count] $KBText" White
+    Log "    $($Update.Title)"
+    Log "    Size: $sizeMB MB"
 
-    $AvailableUpdates += [PSCustomObject]@{
-        Index = $i
-        KB    = $KBText
-        Title = $Update.Title
-        Size  = $SizeMB
-        Object = $Update
-    }
-}
+    # Accept EULA
+    if (-not $Update.EulaAccepted) {
 
-# ------------------------------------------------------------
-# 7. Select updates
-# ------------------------------------------------------------
-
-$UpdatesToInstall = New-Object -ComObject Microsoft.Update.UpdateColl
-
-if ($TargetKBs.Count -eq 0) {
-
-    Write-Host "[4] No KB filter specified." -ForegroundColor Yellow
-    Write-Host "    All applicable updates will be installed."
-
-    foreach ($item in $AvailableUpdates) {
-
-        $update = $item.Object
-
-        # Some updates require EULA acceptance
-        if (-not $update.EulaAccepted) {
-            try {
-                $update.AcceptEula()
-            }
-            catch {
-                Write-Warning "Cannot accept EULA: $($item.Title)"
-            }
+        try {
+            $Update.AcceptEula()
+            Log "    EULA accepted."
         }
-
-        [void]$UpdatesToInstall.Add($update)
-    }
-}
-else {
-
-    Write-Host "[4] KB filter enabled:" -ForegroundColor Yellow
-    Write-Host "    $($TargetKBs -join ', ')"
-
-    foreach ($item in $AvailableUpdates) {
-
-        $update = $item.Object
-
-        $updateKBs = @(
-            $update.KBArticleIDs |
-            ForEach-Object {
-                "KB$($_)"
-            }
-        )
-
-        $match = $false
-
-        foreach ($targetKB in $TargetKBs) {
-
-            if ($updateKBs -contains $targetKB) {
-                $match = $true
-                break
-            }
-        }
-
-        if ($match) {
-
-            Write-Host ""
-            Write-Host "    SELECTED: $($item.KB)" -ForegroundColor Green
-            Write-Host "    $($item.Title)"
-
-            if (-not $update.EulaAccepted) {
-                try {
-                    $update.AcceptEula()
-                }
-                catch {
-                    Write-Warning "Cannot accept EULA."
-                }
-            }
-
-            [void]$UpdatesToInstall.Add($update)
+        catch {
+            Log "    WARNING: Cannot accept EULA." Yellow
         }
     }
+
+    [void]$Updates.Add($Update)
 }
 
-# ------------------------------------------------------------
-# 8. Check selected updates
-# ------------------------------------------------------------
+# ============================================================
+# DOWNLOAD
+# ============================================================
 
-Write-Host ""
+Log ""
+Log "[4] DOWNLOADING $($Updates.Count) updates..." Yellow
+Log "Please wait..." Yellow
 
-if ($UpdatesToInstall.Count -eq 0) {
+try {
 
-    Write-Host "No requested KB updates are currently available." `
-        -ForegroundColor Yellow
+    $Downloader = $Session.CreateUpdateDownloader()
 
-    if ($TargetKBs.Count -gt 0) {
+    $Downloader.Updates = $Updates
 
-        Write-Host ""
-        Write-Host "Requested KBs:" -ForegroundColor Yellow
+    $DownloadResult = $Downloader.Download()
 
-        foreach ($kb in $TargetKBs) {
-            Write-Host "    $kb"
-        }
-
-        Write-Host ""
-        Write-Host "Possible reasons:"
-        Write-Host "  - KB is already installed"
-        Write-Host "  - KB is not applicable to this Windows version"
-        Write-Host "  - KB has not yet been offered by Windows Update"
-        Write-Host "  - KB was superseded by another update"
-    }
-
-    exit 0
 }
+catch {
 
-Write-Host "Updates selected: $($UpdatesToInstall.Count)" `
-    -ForegroundColor Green
-
-# ------------------------------------------------------------
-# 9. Download
-# ------------------------------------------------------------
-
-Write-Host ""
-Write-Host "[5] Downloading updates..." -ForegroundColor Yellow
-
-$Downloader = $Session.CreateUpdateDownloader()
-
-$Downloader.Updates = $UpdatesToInstall
-
-$DownloadResult = $Downloader.Download()
-
-Write-Host ""
-Write-Host "Download result code: $($DownloadResult.ResultCode)"
-
-# ResultCode:
-# 0 = NotStarted
-# 1 = InProgress
-# 2 = Succeeded
-# 3 = SucceededWithErrors
-# 4 = Failed
-# 5 = Aborted
-
-if (($DownloadResult.ResultCode -ne 2) -and
-    ($DownloadResult.ResultCode -ne 3)) {
-
-    Write-Host ""
-    Write-Host "DOWNLOAD FAILED." -ForegroundColor Red
-
-    for ($i = 0; $i -lt $UpdatesToInstall.Count; $i++) {
-
-        $u = $UpdatesToInstall.Item($i)
-
-        Write-Host ""
-        Write-Host "Update: $($u.Title)"
-        Write-Host "Downloaded: $($u.IsDownloaded)"
-    }
+    Log "DOWNLOAD ERROR:" Red
+    Log $_.Exception.Message Red
 
     exit 1
 }
 
-# ------------------------------------------------------------
-# 10. Verify downloaded updates
-# ------------------------------------------------------------
+Log ""
+Log "Download ResultCode: $($DownloadResult.ResultCode)"
 
-$InstallCollection = New-Object -ComObject Microsoft.Update.UpdateColl
+# ============================================================
+# CHECK DOWNLOAD
+# ============================================================
 
-Write-Host ""
-Write-Host "Downloaded updates:" -ForegroundColor Cyan
+$DownloadedUpdates =
+    New-Object -ComObject Microsoft.Update.UpdateColl
 
-for ($i = 0; $i -lt $UpdatesToInstall.Count; $i++) {
+for ($i = 0; $i -lt $Updates.Count; $i++) {
 
-    $u = $UpdatesToInstall.Item($i)
+    $Update = $Updates.Item($i)
 
     $KBs = @(
-        $u.KBArticleIDs |
+        $Update.KBArticleIDs |
         ForEach-Object { "KB$_" }
     )
 
@@ -331,57 +252,71 @@ for ($i = 0; $i -lt $UpdatesToInstall.Count; $i++) {
         "(no KB)"
     }
 
-    Write-Host ""
-    Write-Host "$KBText"
-    Write-Host "$($u.Title)"
-    Write-Host "Downloaded: $($u.IsDownloaded)"
+    if ($Update.IsDownloaded) {
 
-    if ($u.IsDownloaded) {
-        [void]$InstallCollection.Add($u)
+        Log "DOWNLOADED: $KBText" Green
+
+        [void]$DownloadedUpdates.Add($Update)
+
+    }
+    else {
+
+        Log "NOT DOWNLOADED: $KBText" Red
     }
 }
 
-if ($InstallCollection.Count -eq 0) {
+if ($DownloadedUpdates.Count -eq 0) {
 
-    Write-Host ""
-    Write-Host "No downloaded updates available for installation." `
-        -ForegroundColor Red
+    Log "No updates were downloaded." Red
+    exit 1
+}
+
+# ============================================================
+# INSTALL
+# ============================================================
+
+Log ""
+Log "[5] INSTALLING $($DownloadedUpdates.Count) updates..." Yellow
+Log "This may take a long time." Yellow
+Log ""
+
+try {
+
+    $Installer = $Session.CreateUpdateInstaller()
+
+    $Installer.Updates = $DownloadedUpdates
+
+    $InstallResult = $Installer.Install()
+
+}
+catch {
+
+    Log "INSTALLATION ERROR:" Red
+    Log $_.Exception.Message Red
 
     exit 1
 }
 
-# ------------------------------------------------------------
-# 11. Install
-# ------------------------------------------------------------
+# ============================================================
+# RESULTS
+# ============================================================
 
-Write-Host ""
-Write-Host "[6] Installing updates..." -ForegroundColor Yellow
-Write-Host "    Do not close this console."
-Write-Host ""
+Log ""
+Log "============================================================" Cyan
+Log " INSTALLATION RESULTS" Cyan
+Log "============================================================" Cyan
 
-$Installer = $Session.CreateUpdateInstaller()
+$Success = 0
+$Failed = 0
 
-$Installer.Updates = $InstallCollection
+for ($i = 0; $i -lt $DownloadedUpdates.Count; $i++) {
 
-$InstallResult = $Installer.Install()
-
-# ------------------------------------------------------------
-# 12. Installation results
-# ------------------------------------------------------------
-
-Write-Host ""
-Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host " INSTALLATION RESULTS" -ForegroundColor Cyan
-Write-Host "=============================================" -ForegroundColor Cyan
-
-for ($i = 0; $i -lt $InstallCollection.Count; $i++) {
-
-    $u = $InstallCollection.Item($i)
+    $Update = $DownloadedUpdates.Item($i)
 
     $Result = $InstallResult.GetUpdateResult($i)
 
     $KBs = @(
-        $u.KBArticleIDs |
+        $Update.KBArticleIDs |
         ForEach-Object { "KB$_" }
     )
 
@@ -392,90 +327,77 @@ for ($i = 0; $i -lt $InstallCollection.Count; $i++) {
         "(no KB)"
     }
 
-    Write-Host ""
-    Write-Host "KB: $KBText"
-    Write-Host "Title: $($u.Title)"
-    Write-Host "Result code: $($Result.ResultCode)"
-    Write-Host "HResult: $($Result.HResult)"
+    Log ""
+    Log "$KBText"
+    Log "$($Update.Title)"
+
+    Log "ResultCode: $($Result.ResultCode)"
+    Log "HResult:    $($Result.HResult)"
 
     switch ($Result.ResultCode) {
 
         0 {
-            Write-Host "STATUS: Not started" -ForegroundColor Yellow
+            Log "STATUS: NOT STARTED" Yellow
+            $Failed++
         }
 
         1 {
-            Write-Host "STATUS: In progress" -ForegroundColor Yellow
+            Log "STATUS: IN PROGRESS" Yellow
         }
 
         2 {
-            Write-Host "STATUS: SUCCESS" -ForegroundColor Green
+            Log "STATUS: SUCCESS" Green
+            $Success++
         }
 
         3 {
-            Write-Host "STATUS: SUCCESS WITH ERRORS" -ForegroundColor Yellow
+            Log "STATUS: SUCCESS WITH ERRORS" Yellow
+            $Failed++
         }
 
         4 {
-            Write-Host "STATUS: FAILED" -ForegroundColor Red
+            Log "STATUS: FAILED" Red
+            $Failed++
         }
 
         5 {
-            Write-Host "STATUS: ABORTED" -ForegroundColor Red
+            Log "STATUS: ABORTED" Red
+            $Failed++
         }
 
         default {
-            Write-Host "STATUS: UNKNOWN" -ForegroundColor Yellow
+            Log "STATUS: UNKNOWN" Yellow
+            $Failed++
         }
     }
 }
 
-# ------------------------------------------------------------
-# 13. Reboot requirement
-# ------------------------------------------------------------
+# ============================================================
+# REBOOT
+# ============================================================
 
-Write-Host ""
-Write-Host "=============================================" -ForegroundColor Cyan
+Log ""
+Log "============================================================" Cyan
 
 if ($InstallResult.RebootRequired) {
 
-    Write-Host "REBOOT REQUIRED: YES" -ForegroundColor Yellow
+    Log "REBOOT REQUIRED: YES" Yellow
 
 }
 else {
 
-    Write-Host "REBOOT REQUIRED: NO" -ForegroundColor Green
+    Log "REBOOT REQUIRED: NO" Green
 }
 
-Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host ""
+Log "============================================================"
 
-# ------------------------------------------------------------
-# 14. Final result
-# ------------------------------------------------------------
+Log ""
+Log "Successful: $Success" Green
+Log "Failed:     $Failed" Red
 
-$SuccessCount = 0
-$FailedCount = 0
+Log ""
+Log "Log file:"
+Log $LogFile
 
-for ($i = 0; $i -lt $InstallCollection.Count; $i++) {
-
-    $Result = $InstallResult.GetUpdateResult($i)
-
-    if ($Result.ResultCode -eq 2) {
-        $SuccessCount++
-    }
-    else {
-        $FailedCount++
-    }
-}
-
-Write-Host "Successful: $SuccessCount" -ForegroundColor Green
-Write-Host "Failed:     $FailedCount" -ForegroundColor Red
-
-if ($InstallResult.RebootRequired) {
-    Write-Host ""
-    Write-Host "Windows requires a reboot." -ForegroundColor Yellow
-}
-
-Write-Host ""
-Write-Host "Finished."
+Log ""
+Log "Windows Update installation finished."
