@@ -1,403 +1,408 @@
-#Requires -Version 5.1
+#requires -version 5.1
+<#
+.SYNOPSIS
+    Installs all applicable Windows software updates.
+    Works in Administrator and SYSTEM context.
 
-$ErrorActionPreference = "Stop"
+.NOTES
+    Save as: Install-WindowsUpdates.ps1
+#>
 
-$LogFile = "C:\Windows\Temp\WindowsUpdate-System.log"
+$ErrorActionPreference = 'Stop'
 
-function Log {
+# ---------------- CONFIG ----------------
+$ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$LogFile = Join-Path $ScriptDir 'WindowsUpdateInstall.log'
+$StateFile = Join-Path $ScriptDir 'WindowsUpdateInstall.state.json'
+$TaskName = 'Install-WindowsUpdates-Continue'
+$MaxCycles = 10
+
+# ---------------- HELPERS ----------------
+function Write-Log {
     param(
         [string]$Message,
-        [string]$Color = "Gray"
+        [ConsoleColor]$Color = [ConsoleColor]::Gray
+    )
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $Message"
+    Add-Content -LiteralPath $LogFile -Value $line -Encoding UTF8
+    Write-Host $line -ForegroundColor $Color
+}
+
+function Is-System {
+    return ([Security.Principal.WindowsIdentity]::GetCurrent().IsSystem)
+}
+
+function Get-PendingReboot {
+    $paths = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending',
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'
     )
 
-    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $Message"
-
-    Write-Host $line -ForegroundColor $Color
-    Add-Content -Path $LogFile -Value $line -Encoding UTF8
-}
-
-# ============================================================
-# START
-# ============================================================
-
-New-Item -ItemType Directory -Path (Split-Path $LogFile) -Force |
-    Out-Null
-
-Log "============================================================" Cyan
-Log " WINDOWS UPDATE - INSTALL ALL AVAILABLE UPDATES" Cyan
-Log "============================================================" Cyan
-
-# ============================================================
-# SYSTEM CHECK
-# ============================================================
-
-$user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-
-Log "User: $user"
-
-if ($user -ne "NT AUTHORITY\SYSTEM") {
-    Log "WARNING: Script is NOT running as SYSTEM." Yellow
-}
-
-# ============================================================
-# SERVICES
-# ============================================================
-
-Log ""
-Log "[1] Checking Windows Update services..." Yellow
-
-$services = @(
-    "wuauserv",
-    "bits",
-    "cryptsvc"
-)
-
-foreach ($name in $services) {
+    foreach ($p in $paths) {
+        if (Test-Path $p) { return $true }
+    }
 
     try {
+        $v = Get-ItemProperty `
+            'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' `
+            -Name PendingFileRenameOperations `
+            -ErrorAction SilentlyContinue
 
-        $svc = Get-Service -Name $name -ErrorAction Stop
-
-        Log "$name : $($svc.Status)"
-
-        if ($svc.Status -ne "Running") {
-
-            Log "Starting $name..." Yellow
-
-            Start-Service -Name $name -ErrorAction Stop
-
-            # Wait max 60 sec
-            $timeout = 60
-
-            while ((Get-Service $name).Status -ne "Running" -and $timeout -gt 0) {
-
-                Start-Sleep -Seconds 1
-                $timeout--
-            }
-
-            if ((Get-Service $name).Status -eq "Running") {
-                Log "$name started." Green
-            }
-            else {
-                throw "$name did not start within 60 seconds."
-            }
+        if ($null -ne $v.PendingFileRenameOperations) {
+            return $true
         }
+    } catch {}
 
+    return $false
+}
+
+function Ensure-ServiceRunning {
+    param([string]$Name)
+
+    $svc = Get-Service -Name $Name -ErrorAction Stop
+
+    if ($svc.Status -ne 'Running') {
+        Write-Log "Starting service: $Name ..." Yellow
+        Start-Service -Name $Name -ErrorAction Stop
+        $svc.WaitForStatus('Running', '00:00:30')
+    }
+
+    Write-Log "$Name : $((Get-Service $Name).Status)" Green
+}
+
+function Show-UpdateServices {
+    try {
+        Write-Log "Checking Windows Update service configuration..."
+
+        $sm = New-Object -ComObject Microsoft.Update.ServiceManager
+        $services = @($sm.Services)
+
+        foreach ($s in $services) {
+            Write-Log ("Update service: {0} | Managed={1} | DefaultAU={2} | RegisteredAU={3}" -f `
+                $s.Name, $s.IsManaged, $s.IsDefaultAUService, $s.IsRegisteredWithAU)
+        }
     }
     catch {
-
-        Log "ERROR starting $name : $($_.Exception.Message)" Red
-        exit 1
+        Write-Log "Could not enumerate Update services: $($_.Exception.Message)" Yellow
     }
 }
 
-# ============================================================
-# WINDOWS UPDATE API
-# ============================================================
-
-Log ""
-Log "[2] Creating Windows Update API session..." Yellow
-
-try {
-
-    $Session = New-Object -ComObject Microsoft.Update.Session
-
-    $Session.ClientApplicationID =
-        "SYSTEM - Install All Windows Updates"
-
-    $Searcher = $Session.CreateUpdateSearcher()
-
-}
-catch {
-
-    Log "ERROR creating Windows Update session:" Red
-    Log $_.Exception.Message Red
-    exit 1
-}
-
-# ============================================================
-# SEARCH
-# ============================================================
-
-Log ""
-Log "[3] Searching for ALL applicable updates..." Yellow
-Log "This may take several minutes..." Yellow
-
-try {
-
-    $SearchResult = $Searcher.Search(
-        "IsInstalled=0 and IsHidden=0 and Type='Software'"
+function Show-UpdatePolicies {
+    $paths = @(
+        'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate',
+        'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
     )
 
-}
-catch {
-
-    Log "ERROR during Windows Update search:" Red
-    Log $_.Exception.Message Red
-
-    exit 1
-}
-
-$count = $SearchResult.Updates.Count
-
-Log ""
-Log "Updates found: $count" Green
-
-if ($count -eq 0) {
-
-    Log "Windows reports that there are no applicable updates." Green
-    Log "Finished."
-
-    exit 0
+    foreach ($p in $paths) {
+        if (Test-Path $p) {
+            Write-Log "Policy key exists: $p" Yellow
+            try {
+                $props = Get-ItemProperty $p
+                foreach ($prop in $props.PSObject.Properties) {
+                    if ($prop.Name -notmatch '^PS') {
+                        Write-Log "  $($prop.Name) = $($prop.Value)"
+                    }
+                }
+            } catch {}
+        }
+    }
 }
 
-# ============================================================
-# DISPLAY UPDATES
-# ============================================================
+function Create-ContinuationTask {
+    param([string]$ScriptPath)
 
-Log ""
-Log "AVAILABLE UPDATES:" Cyan
-Log "------------------------------------------------------------"
+    try {
+        $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
-$Updates = New-Object -ComObject Microsoft.Update.UpdateColl
+        $action = New-ScheduledTaskAction `
+            -Execute 'PowerShell.exe' `
+            -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
 
-for ($i = 0; $i -lt $count; $i++) {
+        $trigger = New-ScheduledTaskTrigger -AtStartup
 
-    $Update = $SearchResult.Updates.Item($i)
+        $principal = New-ScheduledTaskPrincipal `
+            -UserId 'SYSTEM' `
+            -LogonType ServiceAccount `
+            -RunLevel Highest
 
-    $KBs = @(
-        $Update.KBArticleIDs |
-        ForEach-Object { "KB$_" }
+        $settings = New-ScheduledTaskSettingsSet `
+            -AllowStartIfOnBatteries `
+            -DontStopIfGoingOnBatteries `
+            -StartWhenAvailable
+
+        Register-ScheduledTask `
+            -TaskName $TaskName `
+            -Action $action `
+            -Trigger $trigger `
+            -Principal $principal `
+            -Settings $settings `
+            -Force | Out-Null
+
+        Write-Log "Continuation task created: $TaskName" Green
+        return $true
+    }
+    catch {
+        Write-Log "Failed to create continuation task: $($_.Exception.Message)" Red
+        return $false
+    }
+}
+
+function Remove-ContinuationTask {
+    try {
+        if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+            Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+            Write-Log "Continuation task removed." Green
+        }
+    } catch {
+        Write-Log "Could not remove continuation task: $($_.Exception.Message)" Yellow
+    }
+}
+
+function Search-Updates {
+    Write-Log "[SEARCH] Creating Windows Update API session..." Cyan
+
+    $session = New-Object -ComObject Microsoft.Update.Session
+    $session.ClientApplicationID = 'Install-All-Windows-Updates'
+
+    $searcher = $session.CreateUpdateSearcher()
+
+    Write-Log "[SEARCH] Searching for applicable software updates..." Yellow
+    Write-Log "[SEARCH] This can take several minutes..." Yellow
+
+    $result = $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Software'")
+
+    Write-Log "[SEARCH] Search completed. Updates found: $($result.Updates.Count)" Green
+
+    return @{
+        Session = $session
+        SearchResult = $result
+    }
+}
+
+function Install-Updates {
+    param(
+        $Session,
+        $Updates
     )
 
-    if ($KBs.Count -gt 0) {
-        $KBText = $KBs -join ", "
-    }
-    else {
-        $KBText = "(no KB)"
-    }
-
-    $sizeMB = [math]::Round(
-        $Update.MaxDownloadSize / 1MB,
-        2
-    )
-
-    Log "[$($i + 1)/$count] $KBText" White
-    Log "    $($Update.Title)"
-    Log "    Size: $sizeMB MB"
-
-    # Accept EULA
-    if (-not $Update.EulaAccepted) {
-
-        try {
-            $Update.AcceptEula()
-            Log "    EULA accepted."
-        }
-        catch {
-            Log "    WARNING: Cannot accept EULA." Yellow
+    if ($Updates.Count -eq 0) {
+        return @{
+            Installed = 0
+            Failed = 0
+            RebootRequired = $false
         }
     }
 
-    [void]$Updates.Add($Update)
-}
+    Write-Log "Preparing update collection..." Cyan
 
-# ============================================================
-# DOWNLOAD
-# ============================================================
+    $collection = New-Object -ComObject Microsoft.Update.UpdateColl
 
-Log ""
-Log "[4] DOWNLOADING $($Updates.Count) updates..." Yellow
-Log "Please wait..." Yellow
+    for ($i = 0; $i -lt $Updates.Count; $i++) {
+        $u = $Updates.Item($i)
 
-try {
+        $title = $u.Title
 
-    $Downloader = $Session.CreateUpdateDownloader()
+        if (-not $u.EulaAccepted) {
+            try {
+                $u.AcceptEula()
+            } catch {}
+        }
 
-    $Downloader.Updates = $Updates
+        [void]$collection.Add($u)
 
-    $DownloadResult = $Downloader.Download()
-
-}
-catch {
-
-    Log "DOWNLOAD ERROR:" Red
-    Log $_.Exception.Message Red
-
-    exit 1
-}
-
-Log ""
-Log "Download ResultCode: $($DownloadResult.ResultCode)"
-
-# ============================================================
-# CHECK DOWNLOAD
-# ============================================================
-
-$DownloadedUpdates =
-    New-Object -ComObject Microsoft.Update.UpdateColl
-
-for ($i = 0; $i -lt $Updates.Count; $i++) {
-
-    $Update = $Updates.Item($i)
-
-    $KBs = @(
-        $Update.KBArticleIDs |
-        ForEach-Object { "KB$_" }
-    )
-
-    $KBText = if ($KBs.Count) {
-        $KBs -join ", "
-    }
-    else {
-        "(no KB)"
+        Write-Log ("  [{0}/{1}] {2}" -f ($i + 1), $Updates.Count, $title)
     }
 
-    if ($Update.IsDownloaded) {
+    Write-Log "Downloading $($collection.Count) update(s)..." Cyan
 
-        Log "DOWNLOADED: $KBText" Green
+    $downloader = $Session.CreateUpdateDownloader()
+    $downloader.Updates = $collection
 
-        [void]$DownloadedUpdates.Add($Update)
+    $downloadResult = $downloader.Download()
 
-    }
-    else {
+    Write-Log "Download result code: $($downloadResult.ResultCode)" Green
 
-        Log "NOT DOWNLOADED: $KBText" Red
-    }
-}
+    # Rebuild collection with downloaded updates only
+    $installCollection = New-Object -ComObject Microsoft.Update.UpdateColl
 
-if ($DownloadedUpdates.Count -eq 0) {
+    for ($i = 0; $i -lt $collection.Count; $i++) {
+        $u = $collection.Item($i)
 
-    Log "No updates were downloaded." Red
-    exit 1
-}
-
-# ============================================================
-# INSTALL
-# ============================================================
-
-Log ""
-Log "[5] INSTALLING $($DownloadedUpdates.Count) updates..." Yellow
-Log "This may take a long time." Yellow
-Log ""
-
-try {
-
-    $Installer = $Session.CreateUpdateInstaller()
-
-    $Installer.Updates = $DownloadedUpdates
-
-    $InstallResult = $Installer.Install()
-
-}
-catch {
-
-    Log "INSTALLATION ERROR:" Red
-    Log $_.Exception.Message Red
-
-    exit 1
-}
-
-# ============================================================
-# RESULTS
-# ============================================================
-
-Log ""
-Log "============================================================" Cyan
-Log " INSTALLATION RESULTS" Cyan
-Log "============================================================" Cyan
-
-$Success = 0
-$Failed = 0
-
-for ($i = 0; $i -lt $DownloadedUpdates.Count; $i++) {
-
-    $Update = $DownloadedUpdates.Item($i)
-
-    $Result = $InstallResult.GetUpdateResult($i)
-
-    $KBs = @(
-        $Update.KBArticleIDs |
-        ForEach-Object { "KB$_" }
-    )
-
-    $KBText = if ($KBs.Count) {
-        $KBs -join ", "
-    }
-    else {
-        "(no KB)"
+        if ($u.IsDownloaded) {
+            [void]$installCollection.Add($u)
+        }
+        else {
+            Write-Log "NOT downloaded: $($u.Title)" Red
+        }
     }
 
-    Log ""
-    Log "$KBText"
-    Log "$($Update.Title)"
-
-    Log "ResultCode: $($Result.ResultCode)"
-    Log "HResult:    $($Result.HResult)"
-
-    switch ($Result.ResultCode) {
-
-        0 {
-            Log "STATUS: NOT STARTED" Yellow
-            $Failed++
+    if ($installCollection.Count -eq 0) {
+        Write-Log "No downloaded updates are available for installation." Red
+        return @{
+            Installed = 0
+            Failed = $collection.Count
+            RebootRequired = $false
         }
+    }
 
-        1 {
-            Log "STATUS: IN PROGRESS" Yellow
-        }
+    Write-Log "Installing $($installCollection.Count) update(s)..." Cyan
 
-        2 {
-            Log "STATUS: SUCCESS" Green
-            $Success++
-        }
+    $installer = $Session.CreateUpdateInstaller()
+    $installer.Updates = $installCollection
 
-        3 {
-            Log "STATUS: SUCCESS WITH ERRORS" Yellow
-            $Failed++
-        }
+    $installResult = $installer.Install()
 
-        4 {
-            Log "STATUS: FAILED" Red
-            $Failed++
-        }
+    $installed = 0
+    $failed = 0
 
-        5 {
-            Log "STATUS: ABORTED" Red
-            $Failed++
-        }
+    for ($i = 0; $i -lt $installCollection.Count; $i++) {
+        $u = $installCollection.Item($i)
+        $r = $installResult.GetUpdateResult($i)
 
-        default {
-            Log "STATUS: UNKNOWN" Yellow
-            $Failed++
+        $title = $u.Title
+        $code = $r.ResultCode
+        $hr = $r.HResult
+
+        if ($code -eq 2 -or $code -eq 3) {
+            $installed++
+            Write-Log "INSTALLED: $title | Result=$code | HResult=$hr" Green
         }
+        else {
+            $failed++
+            Write-Log "FAILED: $title | Result=$code | HResult=$hr" Red
+        }
+    }
+
+    return @{
+        Installed = $installed
+        Failed = $failed
+        RebootRequired = [bool]$installResult.RebootRequired
     }
 }
 
-# ============================================================
-# REBOOT
-# ============================================================
+# ---------------- START ----------------
 
-Log ""
-Log "============================================================" Cyan
+New-Item -ItemType File -Path $LogFile -Force | Out-Null
 
-if ($InstallResult.RebootRequired) {
+Write-Log "============================================================" Cyan
+Write-Log " WINDOWS UPDATE - INSTALL ALL AVAILABLE UPDATES" Cyan
+Write-Log "============================================================" Cyan
 
-    Log "REBOOT REQUIRED: YES" Yellow
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$isSystem = $identity.IsSystem
 
+Write-Log "User: $($identity.Name)"
+
+if ($isSystem) {
+    Write-Log "Context: SYSTEM" Green
 }
 else {
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 
-    Log "REBOOT REQUIRED: NO" Green
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-Log "WARNING: Script is not running elevated." Yellow
+        Write-Log "Please run PowerShell as Administrator." Yellow
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+
+    Write-Log "Context: Administrator" Green
 }
 
-Log "============================================================"
+try {
+    # Services
+    Write-Log "[1] Checking Windows Update services..." Cyan
 
-Log ""
-Log "Successful: $Success" Green
-Log "Failed:     $Failed" Red
+    Ensure-ServiceRunning 'wuauserv'
+    Ensure-ServiceRunning 'bits'
+    Ensure-ServiceRunning 'cryptsvc'
 
-Log ""
-Log "Log file:"
-Log $LogFile
+    # Diagnostics
+    Write-Log "[2] Checking update sources and policies..." Cyan
+    Show-UpdateServices
+    Show-UpdatePolicies
 
-Log ""
-Log "Windows Update installation finished."
+    # Pending reboot before searching
+    if (Get-PendingReboot) {
+        Write-Log "A pending reboot was detected." Yellow
+
+        if ($ScriptDir) {
+            Create-ContinuationTask -ScriptPath $PSCommandPath | Out-Null
+        }
+
+        Write-Log "Restarting Windows in 30 seconds..." Yellow
+        shutdown.exe /r /t 30 /c "Windows Update installation requires a restart."
+        exit 0
+    }
+
+    # Update cycles
+    for ($cycle = 1; $cycle -le $MaxCycles; $cycle++) {
+
+        Write-Log "============================================================" Cyan
+        Write-Log " UPDATE CYCLE $cycle / $MaxCycles" Cyan
+        Write-Log "============================================================" Cyan
+
+        $data = Search-Updates
+
+        $updates = $data.SearchResult.Updates
+
+        if ($updates.Count -eq 0) {
+            Write-Log "Windows Update reports: 0 applicable updates." Green
+
+            Remove-ContinuationTask
+
+            Write-Log "============================================================" Green
+            Write-Log " ALL AVAILABLE UPDATES ARE INSTALLED" Green
+            Write-Log "============================================================" Green
+            break
+        }
+
+        $result = Install-Updates `
+            -Session $data.Session `
+            -Updates $updates
+
+        Write-Log "Cycle result: Installed=$($result.Installed), Failed=$($result.Failed), RebootRequired=$($result.RebootRequired)"
+
+        if ($result.Failed -gt 0) {
+            Write-Log "One or more updates failed. See the log for details." Red
+        }
+
+        if ($result.RebootRequired -or (Get-PendingReboot)) {
+            Write-Log "A reboot is required." Yellow
+
+            $created = Create-ContinuationTask -ScriptPath $PSCommandPath
+
+            if ($created) {
+                Write-Log "Windows will continue update installation after reboot." Green
+                Write-Log "Restarting Windows in 30 seconds..." Yellow
+                shutdown.exe /r /t 30 /c "Continuing Windows Update installation."
+                exit 0
+            }
+            else {
+                Write-Log "Could not create continuation task. Reboot manually and run the script again." Red
+                break
+            }
+        }
+
+        if ($result.Installed -eq 0) {
+            Write-Log "No update was installed in this cycle. Stopping to avoid an endless loop." Yellow
+            break
+        }
+
+        Start-Sleep -Seconds 5
+    }
+}
+catch {
+    Write-Log "============================================================" Red
+    Write-Log "ERROR" Red
+    Write-Log $_.Exception.ToString() Red
+    Write-Log "============================================================" Red
+}
+finally {
+    Write-Log "Script finished." Cyan
+
+    if (-not $isSystem) {
+        Write-Host ""
+        Read-Host "Press Enter to close"
+    }
+}
