@@ -1,0 +1,32 @@
+﻿2026-10-07 20:16:36  ============================================================
+2026-10-07 20:16:36   WINDOWS UPDATE - INSTALL ALL AVAILABLE UPDATES
+2026-10-07 20:16:36  ============================================================
+2026-10-07 20:16:36  User: NT AUTHORITY\SYSTEM
+2026-10-07 20:16:36  Context: SYSTEM
+2026-10-07 20:16:36  [1] Checking Windows Update services...
+2026-10-07 20:16:36  Starting service: wuauserv ...
+2026-10-07 20:16:38  wuauserv : Running
+2026-10-07 20:16:38  Starting service: bits ...
+2026-10-07 20:16:44  bits : Running
+2026-10-07 20:16:44  cryptsvc : Running
+2026-10-07 20:16:44  [2] Checking update sources and policies...
+2026-10-07 20:16:44  Checking Windows Update service configuration...
+2026-10-07 20:16:44  Update service: Microsoft Update | Managed=False | DefaultAU=True | RegisteredAU=True
+2026-10-07 20:16:44  Update service: DCat Flighting Prod | Managed=False | DefaultAU=False | RegisteredAU=False
+2026-10-07 20:16:44  Update service: Windows Store (Prod) | Managed=False | DefaultAU=False | RegisteredAU=False
+2026-10-07 20:16:44  Update service: Windows Update | Managed=False | DefaultAU=False | RegisteredAU=False
+2026-10-07 20:16:44  Policy key exists: HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate
+2026-10-07 20:16:44    DeferUpgrade = 1
+2026-10-07 20:16:44    DeferUpgradePeriod = 1
+2026-10-07 20:16:44    DeferUpdatePeriod = 0
+2026-10-07 20:16:44    ProductVersion = Windows 11
+2026-10-07 20:16:44    TargetReleaseVersion = 1
+2026-10-07 20:16:44    TargetReleaseVersionInfo = 23H2
+2026-10-07 20:16:44    DisableOSUpgrade  = 1
+2026-10-07 20:16:44  Policy key exists: HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU
+2026-10-07 20:16:44    AUOptions = 2
+2026-10-07 20:16:44    NoAutoUpdate = 1
+2026-10-07 20:16:44  A pending reboot was detected.
+2026-10-07 20:16:46  Continuation task created: Install-WindowsUpdates-Continue
+2026-10-07 20:16:46  Restarting Windows in 30 seconds...
+2026-10-07 20:16:47  Script finished.

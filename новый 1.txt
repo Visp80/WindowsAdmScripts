@@ -1,0 +1,11 @@
+irm https://raw.githubusercontent.com/Visp80/WindowsAdmScripts/refs/heads/main/Install-WindowsUpdates.ps1 | iex
+
+{E750FCCD-84E0-F5AA-3277-45DEB65814E0}
+DOWNLOAD
+https://raw.githubusercontent.com/Visp80/WindowsAdmScripts/refs/heads/main/Install-WindowsUpdates.ps1
+C:\Scripts\Install-WindowsUpdates.ps1
+
+{E750FCCD-84E0-F5AA-3277-45DEB65814E0}
+CONSOLE
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Scripts\Install-WindowsUpdates.ps1
+
