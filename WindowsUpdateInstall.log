@@ -1,32 +1,40 @@
-﻿2026-10-07 20:16:36  ============================================================
-2026-10-07 20:16:36   WINDOWS UPDATE - INSTALL ALL AVAILABLE UPDATES
-2026-10-07 20:16:36  ============================================================
-2026-10-07 20:16:36  User: NT AUTHORITY\SYSTEM
-2026-10-07 20:16:36  Context: SYSTEM
-2026-10-07 20:16:36  [1] Checking Windows Update services...
-2026-10-07 20:16:36  Starting service: wuauserv ...
-2026-10-07 20:16:38  wuauserv : Running
-2026-10-07 20:16:38  Starting service: bits ...
-2026-10-07 20:16:44  bits : Running
-2026-10-07 20:16:44  cryptsvc : Running
-2026-10-07 20:16:44  [2] Checking update sources and policies...
-2026-10-07 20:16:44  Checking Windows Update service configuration...
-2026-10-07 20:16:44  Update service: Microsoft Update | Managed=False | DefaultAU=True | RegisteredAU=True
-2026-10-07 20:16:44  Update service: DCat Flighting Prod | Managed=False | DefaultAU=False | RegisteredAU=False
-2026-10-07 20:16:44  Update service: Windows Store (Prod) | Managed=False | DefaultAU=False | RegisteredAU=False
-2026-10-07 20:16:44  Update service: Windows Update | Managed=False | DefaultAU=False | RegisteredAU=False
-2026-10-07 20:16:44  Policy key exists: HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate
-2026-10-07 20:16:44    DeferUpgrade = 1
-2026-10-07 20:16:44    DeferUpgradePeriod = 1
-2026-10-07 20:16:44    DeferUpdatePeriod = 0
-2026-10-07 20:16:44    ProductVersion = Windows 11
-2026-10-07 20:16:44    TargetReleaseVersion = 1
-2026-10-07 20:16:44    TargetReleaseVersionInfo = 23H2
-2026-10-07 20:16:44    DisableOSUpgrade  = 1
-2026-10-07 20:16:44  Policy key exists: HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU
-2026-10-07 20:16:44    AUOptions = 2
-2026-10-07 20:16:44    NoAutoUpdate = 1
-2026-10-07 20:16:44  A pending reboot was detected.
-2026-10-07 20:16:46  Continuation task created: Install-WindowsUpdates-Continue
-2026-10-07 20:16:46  Restarting Windows in 30 seconds...
-2026-10-07 20:16:47  Script finished.
+﻿2026-10-11 07:56:59  ============================================================
+2026-10-11 07:57:01   WINDOWS UPDATE - INSTALL ALL AVAILABLE UPDATES
+2026-10-11 07:57:11  ============================================================
+2026-10-11 07:57:12  User: NT AUTHORITY\SYSTEM
+2026-10-11 07:57:12  Context: SYSTEM
+2026-10-11 07:57:12  [1] Checking Windows Update services...
+2026-10-11 07:57:15  wuauserv : Running
+2026-10-11 07:57:15  Starting service: bits ...
+2026-10-11 07:57:20  bits : Running
+2026-10-11 07:57:20  cryptsvc : Running
+2026-10-11 07:57:20  [2] Checking update sources and policies...
+2026-10-11 07:57:20  Checking Windows Update service configuration...
+2026-10-11 07:57:20  Update service: Microsoft Update | Managed=False | DefaultAU=True | RegisteredAU=True
+2026-10-11 07:57:20  Update service: DCat Flighting Prod | Managed=False | DefaultAU=False | RegisteredAU=False
+2026-10-11 07:57:20  Update service: Windows Store (Prod) | Managed=False | DefaultAU=False | RegisteredAU=False
+2026-10-11 07:57:20  Update service: Windows Update | Managed=False | DefaultAU=False | RegisteredAU=False
+2026-10-11 07:57:20  Policy key exists: HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate
+2026-10-11 07:57:21    DeferUpgrade = 1
+2026-10-11 07:57:21    DeferUpgradePeriod = 1
+2026-10-11 07:57:21    DeferUpdatePeriod = 0
+2026-10-11 07:57:21    ProductVersion = Windows 11
+2026-10-11 07:57:21    TargetReleaseVersion = 1
+2026-10-11 07:57:21    TargetReleaseVersionInfo = 23H2
+2026-10-11 07:57:21    DisableOSUpgrade  = 1
+2026-10-11 07:57:21  Policy key exists: HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU
+2026-10-11 07:57:21    AUOptions = 2
+2026-10-11 07:57:21    NoAutoUpdate = 1
+2026-10-11 07:57:21  ============================================================
+2026-10-11 07:57:21   UPDATE CYCLE 1 / 10
+2026-10-11 07:57:21  ============================================================
+2026-10-11 07:57:21  [SEARCH] Creating Windows Update API session...
+2026-10-11 07:57:21  [SEARCH] Searching for applicable software updates...
+2026-10-11 07:57:21  [SEARCH] This can take several minutes...
+2026-10-11 07:57:41  [SEARCH] Search completed. Updates found: 0
+2026-10-11 07:57:41  Windows Update reports: 0 applicable updates.
+2026-10-11 07:57:46  Continuation task removed.
+2026-10-11 07:57:46  ============================================================
+2026-10-11 07:57:46   ALL AVAILABLE UPDATES ARE INSTALLED
+2026-10-11 07:57:46  ============================================================
+2026-10-11 07:57:46  Script finished.
