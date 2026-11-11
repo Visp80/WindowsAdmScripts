@@ -55,3 +55,36 @@ bcdedit /enum
 Get-Disk |
     Format-Table Number,FriendlyName,PartitionStyle,IsBoot,IsSystem
 	
+	
+	
+Write-Host "`n=== LEVEL2  ==="		
+
+$disks = Get-CimInstance Win32_DiskDrive
+
+foreach ($disk in $disks) {
+    "`n========== $($disk.Model) =========="
+    $id = $disk.PNPDeviceID
+
+    for ($i = 0; $i -lt 6 -and $id; $i++) {
+        $dev = Get-PnpDevice -InstanceId $id -ErrorAction SilentlyContinue
+        $parent = Get-PnpDeviceProperty `
+            -InstanceId $id `
+            -KeyName 'DEVPKEY_Device_Parent' `
+            -ErrorAction SilentlyContinue
+
+        [PSCustomObject]@{
+            Level       = $i
+            Device      = $dev.FriendlyName
+            InstanceId  = $id
+        } | Format-List
+
+        $id = $parent.Data
+    }
+}
+
+Get-CimInstance Win32_PnPSignedDriver |
+    Where-Object {
+        $_.DeviceID -match 'PCI\\VEN_8086&DEV_1C00|PCI\\VEN_8086&DEV_1C08|PCI\\VEN_1106&DEV_0415'
+    } |
+    Format-List DeviceName,DriverProviderName,DriverVersion,InfName,DeviceID
+	
