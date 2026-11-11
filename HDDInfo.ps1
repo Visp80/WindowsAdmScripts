@@ -19,3 +19,39 @@ Write-Host "`n=== BOOT MODE ==="
 Get-ItemProperty `
     "HKLM:\SYSTEM\CurrentControlSet\Control" |
     Select-Object PEFirmwareType
+	
+	
+Write-Host "`n=== ADDitional ==="	
+
+Get-CimInstance Win32_DiskDrive |
+    Select-Object Model,Index,PNPDeviceID |
+    Format-List
+
+Get-PnpDevice -PresentOnly |
+    Where-Object {
+        $_.InstanceId -match 'PCI\\VEN_8086&DEV_1C00|PCI\\VEN_8086&DEV_1C08|PCI\\VEN_1106&DEV_0415'
+    } |
+    Format-List FriendlyName,InstanceId,Status
+
+$keys = @(
+    'HKLM:\SYSTEM\CurrentControlSet\Services\storahci',
+    'HKLM:\SYSTEM\CurrentControlSet\Services\iaStorV',
+    'HKLM:\SYSTEM\CurrentControlSet\Services\msahci',
+    'HKLM:\SYSTEM\CurrentControlSet\Services\pciide'
+)
+
+foreach ($key in $keys) {
+    if (Test-Path $key) {
+        $p = Get-ItemProperty $key
+        [PSCustomObject]@{
+            Driver = Split-Path $key -Leaf
+            Start  = $p.Start
+        }
+    }
+}
+
+bcdedit /enum 
+
+Get-Disk |
+    Format-Table Number,FriendlyName,PartitionStyle,IsBoot,IsSystem
+	
